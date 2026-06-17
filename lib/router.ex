@@ -4,7 +4,7 @@ defmodule DS.Router do
 
   def which_node(key) do
     slot = slot(key)
-    DS.Storage.Routing.get_node(slot)
+    DS.Routing.get_node(slot)
   end
 
   def which_nodes_for_range(field, min, max) do
@@ -16,11 +16,23 @@ defmodule DS.Router do
     |> Stream.take_while(&(&1 <= last_bucket))
     |> Enum.map(fn bucket_start ->
       slot = :erlang.phash2({field, bucket_start}, @slots)
-      DS.Storage.Routing.get_node(slot)
+      DS.Routing.get_node(slot)
     end)
     |> Enum.filter(&match?({:ok, _}, &1))
     |> Enum.map(fn {:ok, node} -> node end)
     |> Enum.uniq()
+  end
+
+  def get_replica_nodes(slot, n) do
+    all = DS.Routing.all_slots() |> Enum.sort_by(fn {s, _} -> s end)
+
+    {after_slot, before_slot} = Enum.split_while(all, fn {s, _} -> s <= slot end)
+    ring = before_slot ++ after_slot
+
+    ring
+    |> Enum.map(fn {_, node} -> node end)
+    |> Enum.uniq()
+    |> Enum.take(n)
   end
 
   # Private

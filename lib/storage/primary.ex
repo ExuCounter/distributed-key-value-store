@@ -57,4 +57,9 @@ defmodule DS.Storage.Primary do
     :ets.insert(:primary, records)
     :ok
   end
+
+  def handle_call({:write, key, record, clock}, _from, state) do
+    :ets.insert(:primary, {key, record, clock})
+    {:reply, :ok, state}
+  end
 end
