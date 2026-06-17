@@ -39,6 +39,7 @@ defmodule DS.Storage.Primary do
 
   def put(key, record, clock) when is_map(clock) do
     :ets.insert(:primary, {key, record, clock})
+    :ok
   end
 
   def delete(key) do
@@ -50,5 +51,10 @@ defmodule DS.Storage.Primary do
         :ets.delete(:primary, key)
         :ok
     end
+  end
+
+  def bulk_put(records) do
+    :ets.insert(:primary, records)
+    :ok
   end
 end
