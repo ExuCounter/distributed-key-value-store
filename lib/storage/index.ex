@@ -21,14 +21,21 @@ defmodule DS.Storage.Index do
     GenServer.call(__MODULE__, {:create_index, entity, field})
   end
 
-  def update_index(entity, field, id, old_value, new_value) do
+  def update_index(entity, field, id, new_value) do
     case :ets.lookup(:indexes, {entity, field}) do
       [] ->
         :ok
 
       [{_, index_name}] ->
-        if old_value, do: :ets.delete_object(index_name, {old_value, id})
+        reverse_index_name = build_reverse_index_name(entity, field)
+
+        case :ets.lookup(reverse_index_name, id) do
+          [{^id, old_value}] -> :ets.delete_object(index_name, {old_value, id})
+          [] -> :ok
+        end
+
         :ets.insert(index_name, {new_value, id})
+        :ets.insert(reverse_index_name, {id, new_value})
     end
   end
 
@@ -50,6 +57,40 @@ defmodule DS.Storage.Index do
 
       [{_, index_name}] ->
         :ets.delete_object(index_name, {value, id})
+    end
+  end
+
+  def indexed_entry(entity, field, key) do
+    case :ets.lookup(:indexes, {entity, field}) do
+      [] ->
+        {:error, :no_index}
+
+      [{_, _index_name}] ->
+        reverse_index_name = build_reverse_index_name(entity, field)
+
+        case :ets.lookup(reverse_index_name, key) do
+          [{^key, record}] -> {:ok, record}
+          _ -> {:error, :not_found}
+        end
+    end
+  end
+
+  def fix_entry(entity, field, key, stale_value, true_value) do
+    case :ets.lookup(:indexes, {entity, field}) do
+      [] ->
+        :ok
+
+      [{_, index_name}] ->
+        reverse_index_name = build_reverse_index_name(entity, field)
+
+        if stale_value do
+          :ets.delete_object(index_name, {stale_value, key})
+          :ets.delete_object(reverse_index_name, {key, stale_value})
+        end
+
+        :ets.insert(index_name, {true_value, key})
+        :ets.insert(reverse_index_name, {key, true_value})
+        :ok
     end
   end
 
@@ -83,6 +124,7 @@ defmodule DS.Storage.Index do
   end
 
   defp build_index_name(entity, field), do: :"index_#{entity}_#{field}"
+  defp build_reverse_index_name(entity, field), do: :"rindex_#{entity}_#{field}"
 
   defp build_guards(min, max) do
     []
@@ -96,9 +138,11 @@ defmodule DS.Storage.Index do
   defp add_max_guard(guards, :infinity), do: guards
   defp add_max_guard(guards, max), do: [{:"=<", :"$1", max} | guards]
 
+  @scan_batch 100
+
   defp full_scan(entity, field, min, max) do
     match_spec = [{{{entity, :"$1"}, :"$2", :"$3"}, [], [:"$1"]}]
-    do_scan(:ets.select(:primary, match_spec, 100), entity, field, min, max, [])
+    do_scan(:ets.select(:primary, match_spec, @scan_batch), entity, field, min, max, [])
   end
 
   defp do_scan(:"$end_of_table", _entity, _field, _min, _max, acc), do: acc
