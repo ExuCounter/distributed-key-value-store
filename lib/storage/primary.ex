@@ -34,11 +34,13 @@ defmodule DS.Storage.Primary do
       end
 
     :ets.insert(:primary, {primary_key, record, clock})
+    update_indexes(primary_key, record)
     :ok
   end
 
   def put(primary_key, record, clock) when is_map(clock) do
     :ets.insert(:primary, {primary_key, record, clock})
+    update_indexes(primary_key, record)
     :ok
   end
 
@@ -47,10 +49,23 @@ defmodule DS.Storage.Primary do
       {:error, :not_found} ->
         {:error, :not_found}
 
-      {:ok, _} ->
+      {:ok, {record, _clock}} ->
+        delete_indexes(primary_key, record)
         :ets.delete(:primary, primary_key)
         :ok
     end
+  end
+
+  defp update_indexes({entity, key}, record) do
+    Enum.each(record, fn {field, {_type, value, _clock}} ->
+      DS.Storage.Index.update_index(entity, field, key, value)
+    end)
+  end
+
+  defp delete_indexes({entity, key}, record) do
+    Enum.each(record, fn {field, {_type, value, _clock}} ->
+      DS.Storage.Index.delete_index_entry(entity, field, key, value)
+    end)
   end
 
   def bulk_put(rows) do
@@ -59,7 +74,7 @@ defmodule DS.Storage.Primary do
   end
 
   def handle_call({:write, primary_key, record, clock}, _from, state) do
-    :ets.insert(:primary, {primary_key, record, clock})
+    put(primary_key, record, clock)
     {:reply, :ok, state}
   end
 end

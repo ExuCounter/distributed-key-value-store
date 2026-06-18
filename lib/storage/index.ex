@@ -26,16 +26,19 @@ defmodule DS.Storage.Index do
       [] ->
         :ok
 
-      [{_, index_name}] ->
-        reverse_index_name = build_reverse_index_name(entity, field)
+      [_] ->
+        case reverse_index_get(entity, field, key) do
+          {:ok, old_value} ->
+            forward_index_delete(entity, field, key, old_value)
+            reverse_index_delete(entity, field, key, old_value)
 
-        case :ets.lookup(reverse_index_name, key) do
-          [{^key, old_value}] -> :ets.delete_object(index_name, {old_value, key})
-          [] -> :ok
+          :error ->
+            :ok
         end
 
-        :ets.insert(index_name, {new_value, key})
-        :ets.insert(reverse_index_name, {key, new_value})
+        forward_index_put(entity, field, key, new_value)
+        reverse_index_put(entity, field, key, new_value)
+        :ok
     end
   end
 
@@ -44,9 +47,9 @@ defmodule DS.Storage.Index do
       [] ->
         full_scan(entity, field, min, max)
 
-      [{_, index_name}] ->
+      [_] ->
         guards = build_guards(min, max)
-        :ets.select(index_name, [{{:"$1", :"$2"}, guards, [:"$2"]}])
+        :ets.select(forward_index_name(entity, field), [{{:"$1", :"$2"}, guards, [:"$2"]}])
     end
   end
 
@@ -55,8 +58,10 @@ defmodule DS.Storage.Index do
       [] ->
         :ok
 
-      [{_, index_name}] ->
-        :ets.delete_object(index_name, {value, key})
+      [_] ->
+        forward_index_delete(entity, field, key, value)
+        reverse_index_delete(entity, field, key, value)
+        :ok
     end
   end
 
@@ -65,12 +70,10 @@ defmodule DS.Storage.Index do
       [] ->
         {:error, :no_index}
 
-      [{_, _index_name}] ->
-        reverse_index_name = build_reverse_index_name(entity, field)
-
-        case :ets.lookup(reverse_index_name, key) do
-          [{^key, value}] -> {:ok, value}
-          _ -> {:error, :not_found}
+      [_] ->
+        case reverse_index_get(entity, field, key) do
+          {:ok, value} -> {:ok, value}
+          :error -> {:error, :not_found}
         end
     end
   end
@@ -80,16 +83,14 @@ defmodule DS.Storage.Index do
       [] ->
         :ok
 
-      [{_, index_name}] ->
-        reverse_index_name = build_reverse_index_name(entity, field)
-
+      [_] ->
         if stale_value do
-          :ets.delete_object(index_name, {stale_value, key})
-          :ets.delete_object(reverse_index_name, {key, stale_value})
+          forward_index_delete(entity, field, key, stale_value)
+          reverse_index_delete(entity, field, key, stale_value)
         end
 
-        :ets.insert(index_name, {true_value, key})
-        :ets.insert(reverse_index_name, {key, true_value})
+        forward_index_put(entity, field, key, true_value)
+        reverse_index_put(entity, field, key, true_value)
         :ok
     end
   end
@@ -100,8 +101,6 @@ defmodule DS.Storage.Index do
         {:reply, {:error, :field_schema_not_found}, state}
 
       {:ok, _} ->
-        index_name = build_index_name(entity, field)
-
         case :ets.lookup(:indexes, {entity, field}) do
           [_] ->
             {:reply, {:error, :index_already_exists}, state}
@@ -109,7 +108,7 @@ defmodule DS.Storage.Index do
           [] ->
             heir = Process.whereis(DS.Supervisor)
 
-            :ets.new(index_name, [
+            :ets.new(forward_index_name(entity, field), [
               :named_table,
               :ordered_set,
               :public,
@@ -117,14 +116,53 @@ defmodule DS.Storage.Index do
               {:heir, heir, []}
             ])
 
-            :ets.insert(:indexes, {{entity, field}, index_name})
+            :ets.new(reverse_index_name(entity, field), [
+              :named_table,
+              :set,
+              :public,
+              {:read_concurrency, true},
+              {:heir, heir, []}
+            ])
+
+            :ets.insert(:indexes, {{entity, field}, :ok})
             {:reply, :ok, state}
         end
     end
   end
 
-  defp build_index_name(entity, field), do: :"index_#{entity}_#{field}"
-  defp build_reverse_index_name(entity, field), do: :"rindex_#{entity}_#{field}"
+  def index_pairs do
+    :indexes
+    |> :ets.tab2list()
+    |> Enum.map(fn {{entity, field}, _} -> {entity, field} end)
+  end
+
+  def forward_index_name(entity, field), do: :"index_#{entity}_#{field}"
+  def reverse_index_name(entity, field), do: :"rindex_#{entity}_#{field}"
+
+  def delete_forward_row(entity, field, key, value),
+    do: forward_index_delete(entity, field, key, value)
+
+  def delete_reverse_row(entity, field, key, value),
+    do: reverse_index_delete(entity, field, key, value)
+
+  defp forward_index_put(entity, field, key, value),
+    do: :ets.insert(forward_index_name(entity, field), {value, key})
+
+  defp forward_index_delete(entity, field, key, value),
+    do: :ets.delete_object(forward_index_name(entity, field), {value, key})
+
+  defp reverse_index_put(entity, field, key, value),
+    do: :ets.insert(reverse_index_name(entity, field), {key, value})
+
+  defp reverse_index_delete(entity, field, key, value),
+    do: :ets.delete_object(reverse_index_name(entity, field), {key, value})
+
+  defp reverse_index_get(entity, field, key) do
+    case :ets.lookup(reverse_index_name(entity, field), key) do
+      [{^key, value}] -> {:ok, value}
+      [] -> :error
+    end
+  end
 
   defp build_guards(min, max) do
     []

@@ -2,6 +2,7 @@ defmodule DS.Reconciler do
   use GenServer
 
   @reconcile_interval :timer.seconds(30)
+  @scan_batch 100
 
   def start_link(_), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
 
@@ -12,15 +13,59 @@ defmodule DS.Reconciler do
 
   def handle_info(:reconcile, state) do
     reconcile()
+    remove_orphaned_index_entries()
     schedule_reconcile()
     {:noreply, state}
+  end
+
+  def remove_orphaned_index_entries do
+    Enum.each(DS.Storage.Index.index_pairs(), fn {entity, field} ->
+      cleanup_forward_index(entity, field)
+      cleanup_reverse_index(entity, field)
+    end)
+  end
+
+  defp cleanup_forward_index(entity, field) do
+    table = DS.Storage.Index.forward_index_name(entity, field)
+    ms = [{:"$1", [], [:"$1"]}]
+    do_cleanup_forward(:ets.select(table, ms, @scan_batch), entity, field)
+  end
+
+  defp do_cleanup_forward(:"$end_of_table", _entity, _field), do: :ok
+
+  defp do_cleanup_forward({rows, continuation}, entity, field) do
+    Enum.each(rows, fn {value, key} ->
+      case DS.Storage.Primary.get({entity, key}) do
+        {:ok, _} -> :ok
+        {:error, :not_found} -> DS.Storage.Index.delete_forward_row(entity, field, key, value)
+      end
+    end)
+
+    do_cleanup_forward(:ets.select(continuation), entity, field)
+  end
+
+  defp cleanup_reverse_index(entity, field) do
+    table = DS.Storage.Index.reverse_index_name(entity, field)
+    ms = [{:"$1", [], [:"$1"]}]
+    do_cleanup_reverse(:ets.select(table, ms, @scan_batch), entity, field)
+  end
+
+  defp do_cleanup_reverse(:"$end_of_table", _entity, _field), do: :ok
+
+  defp do_cleanup_reverse({rows, continuation}, entity, field) do
+    Enum.each(rows, fn {key, value} ->
+      case DS.Storage.Primary.get({entity, key}) do
+        {:ok, _} -> :ok
+        {:error, :not_found} -> DS.Storage.Index.delete_reverse_row(entity, field, key, value)
+      end
+    end)
+
+    do_cleanup_reverse(:ets.select(continuation), entity, field)
   end
 
   defp schedule_reconcile() do
     Process.send_after(self(), :reconcile, @reconcile_interval)
   end
-
-  @scan_batch 100
 
   defp reconcile() do
     ms = [{:"$1", [], [:"$1"]}]
