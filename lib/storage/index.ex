@@ -21,7 +21,7 @@ defmodule DS.Storage.Index do
     GenServer.call(__MODULE__, {:create_index, entity, field})
   end
 
-  def update_index(entity, field, id, new_value) do
+  def update_index(entity, field, key, new_value) do
     case :ets.lookup(:indexes, {entity, field}) do
       [] ->
         :ok
@@ -29,13 +29,13 @@ defmodule DS.Storage.Index do
       [{_, index_name}] ->
         reverse_index_name = build_reverse_index_name(entity, field)
 
-        case :ets.lookup(reverse_index_name, id) do
-          [{^id, old_value}] -> :ets.delete_object(index_name, {old_value, id})
+        case :ets.lookup(reverse_index_name, key) do
+          [{^key, old_value}] -> :ets.delete_object(index_name, {old_value, key})
           [] -> :ok
         end
 
-        :ets.insert(index_name, {new_value, id})
-        :ets.insert(reverse_index_name, {id, new_value})
+        :ets.insert(index_name, {new_value, key})
+        :ets.insert(reverse_index_name, {key, new_value})
     end
   end
 
@@ -50,17 +50,17 @@ defmodule DS.Storage.Index do
     end
   end
 
-  def delete_index_entry(entity, field, id, value) do
+  def delete_index_entry(entity, field, key, value) do
     case :ets.lookup(:indexes, {entity, field}) do
       [] ->
         :ok
 
       [{_, index_name}] ->
-        :ets.delete_object(index_name, {value, id})
+        :ets.delete_object(index_name, {value, key})
     end
   end
 
-  def indexed_entry(entity, field, key) do
+  def indexed_value(entity, field, key) do
     case :ets.lookup(:indexes, {entity, field}) do
       [] ->
         {:error, :no_index}
@@ -69,7 +69,7 @@ defmodule DS.Storage.Index do
         reverse_index_name = build_reverse_index_name(entity, field)
 
         case :ets.lookup(reverse_index_name, key) do
-          [{^key, record}] -> {:ok, record}
+          [{^key, value}] -> {:ok, value}
           _ -> {:error, :not_found}
         end
     end
@@ -147,10 +147,10 @@ defmodule DS.Storage.Index do
 
   defp do_scan(:"$end_of_table", _entity, _field, _min, _max, acc), do: acc
 
-  defp do_scan({ids, continuation}, entity, field, min, max, acc) do
+  defp do_scan({keys, continuation}, entity, field, min, max, acc) do
     matches =
-      Enum.filter(ids, fn id ->
-        case DS.Storage.Primary.get({entity, id}) do
+      Enum.filter(keys, fn key ->
+        case DS.Storage.Primary.get({entity, key}) do
           {:ok, {record, _clock}} ->
             value = Map.get(record, field)
             value && above_min?(value, min) && below_max?(value, max)

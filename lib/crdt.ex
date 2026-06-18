@@ -47,7 +47,7 @@ defmodule DS.CRDT do
     end
   end
 
-  def counter_value(crdt_map) do
-    Enum.sum(Map.values(crdt_map))
+  def counter_value(counter) do
+    Enum.sum(Map.values(counter))
   end
 end

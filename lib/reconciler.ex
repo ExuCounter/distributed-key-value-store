@@ -29,17 +29,17 @@ defmodule DS.Reconciler do
 
   defp do_scan_with_update(:"$end_of_table"), do: :ok
 
-  defp do_scan_with_update({records, continuation}) do
-    Enum.each(records, fn {{entity, key}, value_map, _clock} ->
-      reconcile_record(entity, key, value_map)
+  defp do_scan_with_update({rows, continuation}) do
+    Enum.each(rows, fn {{entity, key}, record, _clock} ->
+      reconcile_record(entity, key, record)
     end)
 
     do_scan_with_update(:ets.select(continuation))
   end
 
-  def reconcile_record(entity, key, value_map) do
-    Enum.each(value_map, fn {field, {_type, true_value, _clock}} ->
-      case DS.Storage.Index.indexed_entry(entity, field, key) do
+  def reconcile_record(entity, key, record) do
+    Enum.each(record, fn {field, {_type, true_value, _clock}} ->
+      case DS.Storage.Index.indexed_value(entity, field, key) do
         {:ok, ^true_value} ->
           :ok
 
