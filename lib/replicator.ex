@@ -1,13 +1,14 @@
 defmodule DS.Replicator do
-  @quorum 2
+  @quorum 1
   @timeout 5_000
 
   def replicate(key, record, clock) do
     nodes = DS.Router.replica_nodes(key)
 
     result =
-      nodes
-      |> Task.async_stream(
+      DS.TaskSupervisor
+      |> Task.Supervisor.async_stream(
+        nodes,
         fn node ->
           DS.Storage.Primary.remote_write(node, key, record, clock)
         end,

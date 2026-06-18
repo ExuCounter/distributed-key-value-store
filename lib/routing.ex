@@ -24,7 +24,18 @@ defmodule DS.Routing do
     :ets.tab2list(:routing)
   end
 
-  # Server callbacks
+  def replica_nodes(slot, n) do
+    all = all_slots() |> Enum.sort_by(fn {s, _} -> s end)
+
+    {after_slot, before_slot} = Enum.split_while(all, fn {s, _} -> s <= slot end)
+    ring = before_slot ++ after_slot
+
+    ring
+    |> Enum.map(fn {_, node} -> node end)
+    |> Enum.uniq()
+    |> Enum.take(n)
+  end
+
   def init(_) do
     heir = Process.whereis(DS.Supervisor)
 

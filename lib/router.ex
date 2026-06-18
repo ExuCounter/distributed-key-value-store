@@ -1,25 +1,26 @@
 defmodule DS.Router do
   @slots 1024
   @bucket_size 10
-  @replicas 3
+  @replication_factor 3
 
   def which_node(key) do
     slot = slot(key)
     DS.Routing.get_node(slot)
   end
 
-  def replica_nodes(key), do: replica_nodes(slot(key), @replicas)
+  def replica_nodes(key), do: DS.Routing.replica_nodes(slot(key), @replication_factor)
 
-  def replica_nodes(slot, n) do
-    all = DS.Routing.all_slots() |> Enum.sort_by(fn {s, _} -> s end)
+  def all_nodes_for(key) do
+    slot = slot(key)
 
-    {after_slot, before_slot} = Enum.split_while(all, fn {s, _} -> s <= slot end)
-    ring = before_slot ++ after_slot
+    case DS.Routing.get_node(slot) do
+      {:ok, owner} ->
+        replicas = DS.Routing.replica_nodes(slot, @replication_factor - 1)
+        {:ok, Enum.uniq([owner | replicas])}
 
-    ring
-    |> Enum.map(fn {_, node} -> node end)
-    |> Enum.uniq()
-    |> Enum.take(n)
+      {:error, error} ->
+        {:error, error}
+    end
   end
 
   def which_nodes_for_range(entity, field, min, max) do

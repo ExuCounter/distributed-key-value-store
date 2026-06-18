@@ -101,32 +101,52 @@ defmodule DS.Storage.Index do
         {:reply, {:error, :field_schema_not_found}, state}
 
       {:ok, _} ->
-        case :ets.lookup(:indexes, {entity, field}) do
-          [_] ->
-            {:reply, {:error, :index_already_exists}, state}
+        case do_create_index(entity, field) do
+          {:error, _} = error ->
+            {:reply, error, state}
 
-          [] ->
-            heir = Process.whereis(DS.Supervisor)
+          :ok ->
+            Node.list()
+            |> Enum.each(fn node ->
+              GenServer.cast({DS.Storage.Index, node}, {:create_index, entity, field})
+            end)
 
-            :ets.new(forward_index_name(entity, field), [
-              :named_table,
-              :ordered_set,
-              :public,
-              {:read_concurrency, true},
-              {:heir, heir, []}
-            ])
-
-            :ets.new(reverse_index_name(entity, field), [
-              :named_table,
-              :set,
-              :public,
-              {:read_concurrency, true},
-              {:heir, heir, []}
-            ])
-
-            :ets.insert(:indexes, {{entity, field}, :ok})
             {:reply, :ok, state}
         end
+    end
+  end
+
+  def handle_cast({:create_index, entity, field}, state) do
+    do_create_index(entity, field)
+    {:noreply, state}
+  end
+
+  defp do_create_index(entity, field) do
+    case :ets.lookup(:indexes, {entity, field}) do
+      [_] ->
+        {:error, :index_already_exists}
+
+      [] ->
+        heir = Process.whereis(DS.Supervisor)
+
+        :ets.new(forward_index_name(entity, field), [
+          :named_table,
+          :ordered_set,
+          :public,
+          {:read_concurrency, true},
+          {:heir, heir, []}
+        ])
+
+        :ets.new(reverse_index_name(entity, field), [
+          :named_table,
+          :set,
+          :public,
+          {:read_concurrency, true},
+          {:heir, heir, []}
+        ])
+
+        :ets.insert(:indexes, {{entity, field}, :ok})
+        :ok
     end
   end
 
