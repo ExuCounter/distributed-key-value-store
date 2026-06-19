@@ -34,7 +34,7 @@ defmodule DS.Reconciler do
   defp do_cleanup_forward(:"$end_of_table", _entity, _field), do: :ok
 
   defp do_cleanup_forward({rows, continuation}, entity, field) do
-    Enum.each(rows, fn {value, key} ->
+    Enum.each(rows, fn {{value, key}, _} ->
       case DS.Storage.Primary.get({entity, key}) do
         {:ok, _} -> :ok
         {:error, :not_found} -> DS.Storage.Index.delete_forward_row(entity, field, key, value)

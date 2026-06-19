@@ -46,7 +46,10 @@ defmodule DS.Storage.Index do
 
       [_] ->
         guards = build_guards(min, max)
-        :ets.select(forward_index_name(entity, field), [{{:"$1", :"$2"}, guards, [:"$2"]}])
+
+        :ets.select(forward_index_name(entity, field), [
+          {{{:"$1", :"$2"}, :_}, guards, [:"$2"]}
+        ])
     end
   end
 
@@ -172,10 +175,10 @@ defmodule DS.Storage.Index do
     do: reverse_index_delete(entity, field, key, value)
 
   defp forward_index_put(entity, field, key, value),
-    do: :ets.insert(forward_index_name(entity, field), {value, key})
+    do: :ets.insert(forward_index_name(entity, field), {{value, key}, key})
 
   defp forward_index_delete(entity, field, key, value),
-    do: :ets.delete_object(forward_index_name(entity, field), {value, key})
+    do: :ets.delete(forward_index_name(entity, field), {value, key})
 
   defp reverse_index_put(entity, field, key, value),
     do: :ets.insert(reverse_index_name(entity, field), {key, value})
