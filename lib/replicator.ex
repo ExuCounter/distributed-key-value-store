@@ -1,9 +1,7 @@
 defmodule DS.Replicator do
-  @quorum 1
-  @timeout 5_000
-
   def replicate(key, record, clock) do
     nodes = DS.Router.replica_nodes(key)
+    quorum = DS.Config.write_quorum()
 
     result =
       DS.TaskSupervisor
@@ -12,11 +10,11 @@ defmodule DS.Replicator do
         fn node ->
           DS.Storage.Primary.remote_write(node, key, record, clock)
         end,
-        timeout: @timeout,
+        timeout: DS.Config.replication_timeout(),
         on_timeout: :kill_task
       )
       |> Enum.reduce_while(0, fn
-        {:ok, :ok}, count when count + 1 >= @quorum ->
+        {:ok, :ok}, count when count + 1 >= quorum ->
           {:halt, :ok}
 
         {:ok, :ok}, count ->

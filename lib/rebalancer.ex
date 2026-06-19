@@ -1,9 +1,6 @@
 defmodule DS.Rebalancer do
   use GenServer
 
-  @slots 1024
-  @rebalance_delay :timer.seconds(5)
-
   def start_link(_) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
@@ -20,7 +17,7 @@ defmodule DS.Rebalancer do
 
   # A node joined the cluster.
   def handle_info({:nodeup, _joined_node}, %{role: :leader} = state) do
-    rebalance(live_nodes())
+    rebalance(DS.Router.all_nodes())
     {:noreply, cancel_pending_timers(state)}
   end
 
@@ -32,7 +29,7 @@ defmodule DS.Rebalancer do
   # does not trigger an expensive rebalance.
   def handle_info({:nodedown, departed_node}, %{role: :leader} = state) do
     timer_reference =
-      Process.send_after(self(), {:do_rebalance, departed_node}, @rebalance_delay)
+      Process.send_after(self(), {:do_rebalance, departed_node}, DS.Config.rebalance_delay())
 
     updated_timers = Map.put(state.pending_timers, departed_node, timer_reference)
     {:noreply, %{state | pending_timers: updated_timers}}
@@ -44,7 +41,7 @@ defmodule DS.Rebalancer do
 
   # The delayed rebalance fires after the grace period.
   def handle_info({:do_rebalance, departed_node}, %{role: :leader} = state) do
-    rebalance(live_nodes())
+    rebalance(DS.Router.all_nodes())
     updated_timers = Map.delete(state.pending_timers, departed_node)
     {:noreply, %{state | pending_timers: updated_timers}}
   end
@@ -67,7 +64,7 @@ defmodule DS.Rebalancer do
   defp elect(state) do
     case :global.register_name(:ds_rebalancer, self()) do
       :yes ->
-        rebalance(live_nodes())
+        rebalance(DS.Router.all_nodes())
         %{state | role: :leader}
 
       :no ->
@@ -82,6 +79,8 @@ defmodule DS.Rebalancer do
   defp rebalance(nodes) do
     assignments = assign_slots(nodes)
 
+    DS.Routing.bulk_update(assignments)
+
     Enum.each(Node.list(), fn remote_node ->
       GenServer.cast({DS.Routing, remote_node}, {:bulk_update, assignments})
     end)
@@ -91,14 +90,10 @@ defmodule DS.Rebalancer do
     sorted_nodes = Enum.sort(nodes)
     node_count = length(sorted_nodes)
 
-    for slot <- 0..(@slots - 1) do
+    for slot <- 0..(DS.Config.slots() - 1) do
       owner = Enum.at(sorted_nodes, rem(slot, node_count))
       {slot, owner}
     end
-  end
-
-  defp live_nodes do
-    [node() | Node.list()]
   end
 
   defp cancel_pending_timers(state) do

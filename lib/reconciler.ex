@@ -1,9 +1,6 @@
 defmodule DS.Reconciler do
   use GenServer
 
-  @reconcile_interval :timer.seconds(30)
-  @scan_batch 100
-
   def start_link(_), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
 
   def init(_) do
@@ -28,7 +25,7 @@ defmodule DS.Reconciler do
   defp cleanup_forward_index(entity, field) do
     table = DS.Storage.Index.forward_index_name(entity, field)
     ms = [{:"$1", [], [:"$1"]}]
-    do_cleanup_forward(:ets.select(table, ms, @scan_batch), entity, field)
+    do_cleanup_forward(:ets.select(table, ms, DS.Config.scan_batch()), entity, field)
   end
 
   defp do_cleanup_forward(:"$end_of_table", _entity, _field), do: :ok
@@ -47,7 +44,7 @@ defmodule DS.Reconciler do
   defp cleanup_reverse_index(entity, field) do
     table = DS.Storage.Index.reverse_index_name(entity, field)
     ms = [{:"$1", [], [:"$1"]}]
-    do_cleanup_reverse(:ets.select(table, ms, @scan_batch), entity, field)
+    do_cleanup_reverse(:ets.select(table, ms, DS.Config.scan_batch()), entity, field)
   end
 
   defp do_cleanup_reverse(:"$end_of_table", _entity, _field), do: :ok
@@ -64,12 +61,12 @@ defmodule DS.Reconciler do
   end
 
   defp schedule_reconcile() do
-    Process.send_after(self(), :reconcile, @reconcile_interval)
+    Process.send_after(self(), :reconcile, DS.Config.reconcile_interval())
   end
 
   defp reconcile() do
     ms = [{:"$1", [], [:"$1"]}]
-    do_scan_with_update(:ets.select(:primary, ms, @scan_batch))
+    do_scan_with_update(:ets.select(:primary, ms, DS.Config.scan_batch()))
   end
 
   defp do_scan_with_update(:"$end_of_table"), do: :ok

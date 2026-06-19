@@ -1,8 +1,6 @@
 defmodule DS.Storage.Schema do
   use GenServer
 
-  @resync_interval :timer.seconds(30)
-
   def start_link(_), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
 
   def init(_) do
@@ -98,7 +96,7 @@ defmodule DS.Storage.Schema do
   end
 
   defp schedule_resync do
-    Process.send_after(self(), :resync, @resync_interval)
+    Process.send_after(self(), :resync, DS.Config.resync_interval())
   end
 
   def all_schemas do

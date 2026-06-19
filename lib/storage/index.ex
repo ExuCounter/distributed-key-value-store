@@ -205,11 +205,9 @@ defmodule DS.Storage.Index do
   defp add_max_guard(guards, :infinity), do: guards
   defp add_max_guard(guards, max), do: [{:"=<", :"$1", max} | guards]
 
-  @scan_batch 100
-
   defp full_scan(entity, field, min, max) do
     match_spec = [{{{entity, :"$1"}, :"$2", :"$3"}, [], [:"$1"]}]
-    do_scan(:ets.select(:primary, match_spec, @scan_batch), entity, field, min, max, [])
+    do_scan(:ets.select(:primary, match_spec, DS.Config.scan_batch()), entity, field, min, max, [])
   end
 
   defp do_scan(:"$end_of_table", _entity, _field, _min, _max, acc), do: acc

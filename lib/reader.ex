@@ -1,6 +1,4 @@
 defmodule DS.Reader do
-  @quorum 2
-
   # TODO: remote_write to stale replicas, with clock smaller
 
   def read(primary_key) do
@@ -9,60 +7,70 @@ defmodule DS.Reader do
         err
 
       {:ok, nodes} ->
+        quorum = DS.Config.read_quorum()
+
         responses =
           DS.TaskSupervisor
           |> Task.Supervisor.async_stream(
             nodes,
             fn node -> DS.Storage.Primary.remote_read(node, primary_key) end,
-            timeout: 5_000,
+            timeout: DS.Config.replication_timeout(),
             on_timeout: :kill_task
           )
           |> Enum.reduce_while([], fn
-            {:ok, {:ok, {record, clock}}}, acc when length(acc) + 1 >= @quorum ->
-              {:halt, [{record, clock} | acc]}
+            {:ok, {:ok, {record, clock}}}, accumulator
+            when length(accumulator) + 1 >= quorum ->
+              {:halt, [{record, clock} | accumulator]}
 
-            {:ok, {:ok, {record, clock}}}, acc ->
-              {:cont, [{record, clock} | acc]}
+            {:ok, {:ok, {record, clock}}}, accumulator ->
+              {:cont, [{record, clock} | accumulator]}
 
-            _, acc ->
-              {:cont, acc}
+            _, accumulator ->
+              {:cont, accumulator}
           end)
 
         resolve_read(responses)
     end
   end
 
-  def deterministic_pick({rec_a, clk_a}, {rec_b, clk_b}) do
-    sum_a = Enum.sum(Map.values(clk_a))
-    sum_b = Enum.sum(Map.values(clk_b))
+  def deterministic_pick({record_a, clock_a}, {record_b, clock_b}) do
+    sum_a = Enum.sum(Map.values(clock_a))
+    sum_b = Enum.sum(Map.values(clock_b))
 
     cond do
       sum_a > sum_b ->
-        {rec_a, clk_a}
+        {record_a, clock_a}
 
       sum_b > sum_a ->
-        {rec_b, clk_b}
+        {record_b, clock_b}
 
       true ->
-        winner = (Map.keys(clk_a) ++ Map.keys(clk_b)) |> Enum.sort() |> List.first()
-        if winner in Map.keys(clk_a), do: {rec_a, clk_a}, else: {rec_b, clk_b}
+        winner = (Map.keys(clock_a) ++ Map.keys(clock_b)) |> Enum.sort() |> List.first()
+        if winner in Map.keys(clock_a), do: {record_a, clock_a}, else: {record_b, clock_b}
     end
   end
 
   defp resolve_read([]), do: {:error, :not_found}
 
-  defp resolve_read(responses) when length(responses) >= @quorum do
-    {record, _clock} =
-      Enum.reduce(responses, fn {rec, clk}, {acc_rec, acc_clk} ->
-        case DS.VectorClock.compare(clk, acc_clk) do
-          :after -> {rec, clk}
-          :before -> {acc_rec, acc_clk}
-          _ -> deterministic_pick({rec, clk}, {acc_rec, acc_clk})
-        end
-      end)
+  defp resolve_read(responses) do
+    if length(responses) >= DS.Config.read_quorum() do
+      {record, _clock} =
+        Enum.reduce(responses, fn {record, clock}, {accumulator_record, accumulator_clock} ->
+          case DS.VectorClock.compare(clock, accumulator_clock) do
+            :after ->
+              {record, clock}
 
-    {:ok, record}
+            :before ->
+              {accumulator_record, accumulator_clock}
+
+            _ ->
+              deterministic_pick({record, clock}, {accumulator_record, accumulator_clock})
+          end
+        end)
+
+      {:ok, record}
+    else
+      {:error, :unavailable}
+    end
   end
-
-  defp resolve_read(_), do: {:error, :unavailable}
 end
