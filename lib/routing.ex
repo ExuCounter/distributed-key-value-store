@@ -37,16 +37,18 @@ defmodule DS.Routing do
   end
 
   def init(_) do
-    heir = Process.whereis(DS.Supervisor)
-
     :ets.new(:routing, [
       :named_table,
       :set,
       :public,
-      {:read_concurrency, true},
-      {:heir, heir, []}
+      {:read_concurrency, true}
     ])
 
     {:ok, :ok}
+  end
+
+  def handle_cast({:bulk_update, assignments}, state) do
+    bulk_update(assignments)
+    {:noreply, state}
   end
 end

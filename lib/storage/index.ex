@@ -4,14 +4,11 @@ defmodule DS.Storage.Index do
   def start_link(_), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
 
   def init(_) do
-    heir = Process.whereis(DS.Supervisor)
-
     :ets.new(:indexes, [
       :named_table,
       :set,
       :public,
-      {:read_concurrency, true},
-      {:heir, heir, []}
+      {:read_concurrency, true}
     ])
 
     {:ok, :ok}
@@ -51,6 +48,19 @@ defmodule DS.Storage.Index do
         guards = build_guards(min, max)
         :ets.select(forward_index_name(entity, field), [{{:"$1", :"$2"}, guards, [:"$2"]}])
     end
+  end
+
+  def where_with_records(entity, field, min, max) do
+    entity
+    |> where(field, min, max)
+    |> Enum.map(fn id ->
+      case DS.Storage.Primary.get_raw({entity, id}) do
+        {:ok, {:tombstone, _clock}} -> nil
+        {:ok, {record, clock}} -> {id, record, clock}
+        {:error, :not_found} -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
   end
 
   def delete_index_entry(entity, field, key, value) do
@@ -127,14 +137,11 @@ defmodule DS.Storage.Index do
         {:error, :index_already_exists}
 
       [] ->
-        heir = Process.whereis(DS.Supervisor)
-
         :ets.new(forward_index_name(entity, field), [
           :named_table,
           :ordered_set,
           :public,
           {:read_concurrency, true},
-          {:heir, heir, []}
         ])
 
         :ets.new(reverse_index_name(entity, field), [
@@ -142,7 +149,6 @@ defmodule DS.Storage.Index do
           :set,
           :public,
           {:read_concurrency, true},
-          {:heir, heir, []}
         ])
 
         :ets.insert(:indexes, {{entity, field}, :ok})

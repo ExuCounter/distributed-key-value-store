@@ -6,14 +6,11 @@ defmodule DS.Storage.Primary do
   end
 
   def init(_) do
-    heir = Process.whereis(DS.Supervisor)
-
     :ets.new(:primary, [
       :named_table,
       :set,
       :public,
-      {:read_concurrency, true},
-      {:heir, heir, []}
+      {:read_concurrency, true}
     ])
 
     {:ok, :ok}
@@ -82,13 +79,13 @@ defmodule DS.Storage.Primary do
   end
 
   defp update_indexes({entity, key}, record) do
-    Enum.each(record, fn {field, {_type, value, _clock}} ->
+    Enum.each(record, fn {field, value} ->
       DS.Storage.Index.update_index(entity, field, key, value)
     end)
   end
 
   defp delete_indexes({entity, key}, record) do
-    Enum.each(record, fn {field, {_type, value, _clock}} ->
+    Enum.each(record, fn {field, value} ->
       DS.Storage.Index.delete_index_entry(entity, field, key, value)
     end)
   end

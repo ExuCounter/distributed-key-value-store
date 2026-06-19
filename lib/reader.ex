@@ -32,6 +32,23 @@ defmodule DS.Reader do
     end
   end
 
+  def deterministic_pick({rec_a, clk_a}, {rec_b, clk_b}) do
+    sum_a = Enum.sum(Map.values(clk_a))
+    sum_b = Enum.sum(Map.values(clk_b))
+
+    cond do
+      sum_a > sum_b ->
+        {rec_a, clk_a}
+
+      sum_b > sum_a ->
+        {rec_b, clk_b}
+
+      true ->
+        winner = (Map.keys(clk_a) ++ Map.keys(clk_b)) |> Enum.sort() |> List.first()
+        if winner in Map.keys(clk_a), do: {rec_a, clk_a}, else: {rec_b, clk_b}
+    end
+  end
+
   defp resolve_read([]), do: {:error, :not_found}
 
   defp resolve_read(responses) when length(responses) >= @quorum do
@@ -48,21 +65,4 @@ defmodule DS.Reader do
   end
 
   defp resolve_read(_), do: {:error, :unavailable}
-
-  defp deterministic_pick({rec_a, clk_a}, {rec_b, clk_b}) do
-    sum_a = Enum.sum(Map.values(clk_a))
-    sum_b = Enum.sum(Map.values(clk_b))
-
-    cond do
-      sum_a > sum_b ->
-        {rec_a, clk_a}
-
-      sum_b > sum_a ->
-        {rec_b, clk_b}
-
-      true ->
-        winner = (Map.keys(clk_a) ++ Map.keys(clk_b)) |> Enum.sort() |> List.first()
-        if winner in Map.keys(clk_a), do: {rec_a, clk_a}, else: {rec_b, clk_b}
-    end
-  end
 end
