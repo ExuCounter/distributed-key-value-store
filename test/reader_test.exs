@@ -3,6 +3,37 @@ defmodule DS.ReaderTest do
 
   alias DS.Reader
 
+  describe "pick_newer/2" do
+    test "picks the side with the strictly newer vector clock (:after)" do
+      assert Reader.pick_newer({"new", %{a: 2}}, {"old", %{a: 1}}) == {"new", %{a: 2}}
+    end
+
+    test "picks the other side when its clock is strictly newer (:before)" do
+      assert Reader.pick_newer({"old", %{a: 1}}, {"new", %{a: 2}}) == {"new", %{a: 2}}
+    end
+
+    test "falls back to deterministic_pick on concurrent clocks" do
+      # %{a: 2} vs %{b: 2} are concurrent; sums tie; smallest sorted key is :a,
+      # which lives on the left, so the left record wins.
+      assert Reader.pick_newer({"left", %{a: 2}}, {"right", %{b: 2}}) == {"left", %{a: 2}}
+    end
+
+    test "falls back to deterministic_pick on equal clocks" do
+      assert Reader.pick_newer({"left", %{a: 1}}, {"right", %{a: 1}}) == {"left", %{a: 1}}
+    end
+
+    test "result is stable across repeated calls" do
+      left = {"left", %{a: 1, b: 1}}
+      right = {"right", %{a: 1, b: 1}}
+
+      first = Reader.pick_newer(left, right)
+
+      for _ <- 1..5 do
+        assert Reader.pick_newer(left, right) == first
+      end
+    end
+  end
+
   describe "deterministic_pick/2" do
     test "higher clock-sum wins on the left" do
       assert Reader.deterministic_pick({"left", %{a: 5}}, {"right", %{a: 2}}) ==

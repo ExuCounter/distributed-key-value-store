@@ -33,6 +33,14 @@ defmodule DS.Reader do
     end
   end
 
+  def pick_newer({record_a, clock_a}, {record_b, clock_b}) do
+    case DS.VectorClock.compare(clock_a, clock_b) do
+      :after -> {record_a, clock_a}
+      :before -> {record_b, clock_b}
+      _ -> deterministic_pick({record_a, clock_a}, {record_b, clock_b})
+    end
+  end
+
   def deterministic_pick({record_a, clock_a}, {record_b, clock_b}) do
     sum_a = Enum.sum(Map.values(clock_a))
     sum_b = Enum.sum(Map.values(clock_b))
@@ -54,20 +62,7 @@ defmodule DS.Reader do
 
   defp resolve_read(responses) do
     if length(responses) >= DS.Config.read_quorum() do
-      {record, _clock} =
-        Enum.reduce(responses, fn {record, clock}, {accumulator_record, accumulator_clock} ->
-          case DS.VectorClock.compare(clock, accumulator_clock) do
-            :after ->
-              {record, clock}
-
-            :before ->
-              {accumulator_record, accumulator_clock}
-
-            _ ->
-              deterministic_pick({record, clock}, {accumulator_record, accumulator_clock})
-          end
-        end)
-
+      {record, _clock} = Enum.reduce(responses, &pick_newer/2)
       {:ok, record}
     else
       {:error, :unavailable}
