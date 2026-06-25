@@ -38,6 +38,10 @@ defmodule DS do
     end
   end
 
+  def where_with_records(entity, field, min, max) do
+    DS.Storage.Index.where_with_records(entity, field, min, max)
+  end
+
   def where(entity, field, min, max) do
     nodes = DS.Router.all_nodes()
 
