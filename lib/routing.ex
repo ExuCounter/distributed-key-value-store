@@ -25,15 +25,21 @@ defmodule DS.Routing do
   end
 
   def replica_nodes(slot, n) do
-    all = all_slots() |> Enum.sort_by(fn {s, _} -> s end)
+    case get_node(slot) do
+      {:error, _} ->
+        []
 
-    {after_slot, before_slot} = Enum.split_while(all, fn {s, _} -> s <= slot end)
-    ring = before_slot ++ after_slot
+      {:ok, owner} ->
+        sorted = all_slots() |> Enum.sort_by(fn {s, _} -> s end)
+        {before_or_at, after_slot} = Enum.split_while(sorted, fn {s, _} -> s <= slot end)
+        ring = after_slot ++ before_or_at
 
-    ring
-    |> Enum.map(fn {_, node} -> node end)
-    |> Enum.uniq()
-    |> Enum.take(n)
+        ring
+        |> Enum.map(fn {_, node} -> node end)
+        |> Enum.uniq()
+        |> Enum.reject(&(&1 == owner))
+        |> Enum.take(n)
+    end
   end
 
   def init(_) do

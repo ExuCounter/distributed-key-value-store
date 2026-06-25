@@ -58,20 +58,23 @@ defmodule DS.RouterTest do
   end
 
   describe "replica_nodes/1" do
-    test "returns replication_factor unique nodes when enough are available" do
+    test "returns RF-1 non-owner replicas when enough distinct nodes exist" do
       populate_round_robin([:a, :b, :c, :d])
 
+      {:ok, owner} = Router.which_node("k1")
       result = Router.replica_nodes("k1")
 
-      assert length(result) == DS.Config.replication_factor()
-      assert length(Enum.uniq(result)) == DS.Config.replication_factor()
+      expected = DS.Config.replication_factor() - 1
+      assert length(result) == expected
+      assert length(Enum.uniq(result)) == expected
+      refute owner in result
       assert Enum.all?(result, &(&1 in [:a, :b, :c, :d]))
     end
 
-    test "returns fewer than replication_factor when not enough distinct nodes exist" do
+    test "returns [] when the cluster has only one node (no non-owner replicas)" do
       populate_all_slots(:only_node)
 
-      assert Router.replica_nodes("k1") == [:only_node]
+      assert Router.replica_nodes("k1") == []
     end
 
     test "returns [] when the routing table is empty" do

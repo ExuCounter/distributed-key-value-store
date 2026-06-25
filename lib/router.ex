@@ -4,7 +4,7 @@ defmodule DS.Router do
     DS.Routing.get_node(slot)
   end
 
-  def replica_nodes(key), do: DS.Routing.replica_nodes(slot(key), DS.Config.replication_factor())
+  def replica_nodes(key), do: DS.Routing.replica_nodes(slot(key), DS.Config.replication_factor() - 1)
 
   def all_nodes_for(key) do
     slot = slot(key)

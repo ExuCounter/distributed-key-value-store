@@ -11,7 +11,19 @@ defmodule DS.Storage.Index do
       {:read_concurrency, true}
     ])
 
-    {:ok, :ok}
+    schedule_resync()
+    {:ok, %{}, {:continue, :sync}}
+  end
+
+  def handle_continue(:sync, state) do
+    sync_from_peers(Node.list())
+    {:noreply, state}
+  end
+
+  def handle_info(:resync, state) do
+    sync_from_peers(Node.list())
+    schedule_resync()
+    {:noreply, state}
   end
 
   def create_index(entity, field) do
@@ -163,6 +175,33 @@ defmodule DS.Storage.Index do
     :indexes
     |> :ets.tab2list()
     |> Enum.map(fn {{entity, field}, _} -> {entity, field} end)
+  end
+
+  defp sync_from_peers([]), do: :ok
+
+  defp sync_from_peers(peers) do
+    Enum.reduce_while(peers, :no_peer, fn peer, _accumulator ->
+      case fetch_index_pairs(peer) do
+        {:ok, pairs} ->
+          Enum.each(pairs, fn {entity, field} -> do_create_index(entity, field) end)
+          {:halt, :ok}
+
+        :error ->
+          {:cont, :no_peer}
+      end
+    end)
+  end
+
+  defp fetch_index_pairs(peer) do
+    {:ok, :erpc.call(peer, __MODULE__, :index_pairs, [], 5_000)}
+  rescue
+    _ -> :error
+  catch
+    :exit, _ -> :error
+  end
+
+  defp schedule_resync do
+    Process.send_after(self(), :resync, DS.Config.resync_interval())
   end
 
   def forward_index_name(entity, field), do: :"index_#{entity}_#{field}"

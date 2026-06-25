@@ -69,43 +69,41 @@ defmodule DS.RoutingTest do
   end
 
   describe "replica_nodes/2" do
-    test "returns n unique nodes walking the ring from the given slot" do
+    test "returns n unique non-owner nodes walking the ring from the given slot" do
       :ok = Routing.bulk_update([{10, :a}, {20, :b}, {30, :c}, {40, :d}])
 
-      assert Routing.replica_nodes(15, 3) == [:b, :c, :d]
+      assert Routing.replica_nodes(10, 3) == [:b, :c, :d]
     end
 
-    test "wraps around past the highest slot" do
+    test "wraps around past the highest owned slot" do
       :ok = Routing.bulk_update([{10, :a}, {20, :b}, {30, :c}])
 
-      assert Routing.replica_nodes(25, 3) == [:c, :a, :b]
+      assert Routing.replica_nodes(30, 2) == [:a, :b]
     end
 
-    test "starts from the matching slot when the key equals a slot" do
+    test "excludes the owner when the slot equals an owned position" do
       :ok = Routing.bulk_update([{10, :a}, {20, :b}, {30, :c}])
 
       assert Routing.replica_nodes(20, 2) == [:c, :a]
     end
 
-    test "deduplicates nodes that own multiple consecutive slots" do
-      :ok = Routing.bulk_update([{10, :a}, {20, :a}, {30, :b}, {40, :c}])
+    test "deduplicates non-owner nodes that own multiple consecutive slots" do
+      :ok = Routing.bulk_update([{10, :a}, {20, :b}, {30, :b}, {40, :c}])
 
-      assert Routing.replica_nodes(5, 3) == [:a, :b, :c]
+      assert Routing.replica_nodes(10, 3) == [:b, :c]
     end
 
-    test "fewer than n unique nodes available returns all of them (less than quorum)" do
+    test "fewer than n unique non-owner nodes available returns all of them" do
       :ok = Routing.bulk_update([{10, :a}, {20, :b}])
 
-      result = Routing.replica_nodes(0, 5)
-      assert length(result) == 2
-      assert Enum.sort(result) == [:a, :b]
+      assert Routing.replica_nodes(10, 5) == [:b]
     end
 
-    test "slot not in ring still produces correct successor list" do
+    test "returns [] when the slot has no owner" do
       :ok = Routing.bulk_update([{10, :a}, {30, :b}, {50, :c}])
 
-      assert Routing.replica_nodes(25, 2) == [:b, :c]
-      assert Routing.replica_nodes(100, 2) == [:a, :b]
+      assert Routing.replica_nodes(25, 2) == []
+      assert Routing.replica_nodes(100, 2) == []
     end
 
     test "empty ring returns an empty list" do
@@ -114,7 +112,7 @@ defmodule DS.RoutingTest do
 
     test "n = 0 returns an empty list" do
       :ok = Routing.bulk_update([{10, :a}, {20, :b}])
-      assert Routing.replica_nodes(5, 0) == []
+      assert Routing.replica_nodes(10, 0) == []
     end
   end
 end
