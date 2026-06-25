@@ -10,3 +10,5 @@ config :ds,
   rebalance_delay: :timer.seconds(5),
   resync_interval: :timer.seconds(30),
   scan_batch: 100
+
+import_config "#{config_env()}.exs"

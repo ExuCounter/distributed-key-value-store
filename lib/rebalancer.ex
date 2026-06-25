@@ -12,7 +12,25 @@ defmodule DS.Rebalancer do
   end
 
   def handle_continue(:elect, state) do
-    {:noreply, elect(state)}
+    new_state = elect(state)
+
+    if new_state.role == :follower do
+      case :global.whereis_name(:ds_rebalancer) do
+        :undefined -> :ok
+        leader_pid -> send(leader_pid, :request_rebalance)
+      end
+    end
+
+    {:noreply, new_state}
+  end
+
+  def handle_info(:request_rebalance, %{role: :leader} = state) do
+    rebalance(DS.Router.all_nodes())
+    {:noreply, state}
+  end
+
+  def handle_info(:request_rebalance, state) do
+    {:noreply, state}
   end
 
   # A node joined the cluster.

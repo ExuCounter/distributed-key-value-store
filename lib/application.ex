@@ -2,18 +2,7 @@ defmodule DS.Application do
   use Application
 
   def start(_type, _args) do
-    topologies = [
-      local: [
-        strategy: Cluster.Strategy.Epmd,
-        config: [
-          hosts: [
-            :"node1@127.0.0.1",
-            :"node2@127.0.0.1",
-            :"node3@127.0.0.1"
-          ]
-        ]
-      ]
-    ]
+    topologies = Application.get_env(:libcluster, :topologies, [])
 
     children = [
       {Cluster.Supervisor, [topologies, [name: DS.ClusterSupervisor]]},
