@@ -1,7 +1,6 @@
 defmodule DS.ClusterCase do
   use ExUnit.CaseTemplate
 
-  @peer_names [:p1, :p2]
   @cookie_arg ~c"-setcookie"
 
   using do
@@ -12,7 +11,13 @@ defmodule DS.ClusterCase do
   end
 
   setup_all do
-    peers = Enum.map(@peer_names, &start_peer/1)
+    ensure_distribution()
+    Application.stop(:ds)
+    {:ok, _} = Application.ensure_all_started(:ds)
+
+    suffix = :erlang.unique_integer([:positive])
+    peer_names = [:"p1_#{suffix}", :"p2_#{suffix}"]
+    peers = Enum.map(peer_names, &start_peer/1)
     nodes = [node() | Enum.map(peers, &elem(&1, 1))]
 
     wait_for_routing(nodes)
@@ -25,9 +30,17 @@ defmodule DS.ClusterCase do
           :exit, _ -> :ok
         end
       end)
+
+      Application.stop(:ds)
     end)
 
     {:ok, peers: Enum.map(peers, &elem(&1, 1)), nodes: nodes}
+  end
+
+  defp ensure_distribution do
+    unless Node.alive?() do
+      :net_kernel.start(:"controller@127.0.0.1", %{name_domain: :longnames})
+    end
   end
 
   setup %{nodes: nodes} do

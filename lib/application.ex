@@ -15,6 +15,6 @@ defmodule DS.Application do
       DS.Rebalancer
     ]
 
-    Supervisor.start_link(children, strategy: :rest_for_one)
+    Supervisor.start_link(children, strategy: :rest_for_one, name: DS.Supervisor)
   end
 end
