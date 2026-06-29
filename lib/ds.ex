@@ -1,4 +1,8 @@
 defmodule DS do
+  require Logger
+
+  @max_routing_hops 2
+
   def register_schema(entity, schema), do: DS.Storage.Schema.register(entity, schema)
   def create_index(entity, field), do: DS.Storage.Index.create_index(entity, field)
 
@@ -6,7 +10,9 @@ defmodule DS do
     DS.Reader.read({entity, key})
   end
 
-  def put(entity, key, record) do
+  def put(entity, key, record), do: do_put(entity, key, record, @max_routing_hops)
+
+  def do_put(entity, key, record, hops_remaining) do
     primary_key = {entity, key}
 
     case DS.Router.which_node(primary_key) do
@@ -17,12 +23,18 @@ defmodule DS do
         {:ok, clock} = DS.Storage.Primary.put(primary_key, record, owner)
         DS.Replicator.replicate(primary_key, record, clock)
 
+      {:ok, _owner} when hops_remaining == 0 ->
+        Logger.warning("routing inconsistent for #{inspect(primary_key)}")
+        {:error, :routing_inconsistent}
+
       {:ok, owner} ->
-        forward(owner, :put, [entity, key, record])
+        forward(owner, :do_put, [entity, key, record, hops_remaining - 1])
     end
   end
 
-  def tombstone(entity, key) do
+  def tombstone(entity, key), do: do_tombstone(entity, key, @max_routing_hops)
+
+  def do_tombstone(entity, key, hops_remaining) do
     primary_key = {entity, key}
 
     case DS.Router.which_node(primary_key) do
@@ -33,8 +45,12 @@ defmodule DS do
         {:ok, clock} = DS.Storage.Primary.tombstone(primary_key, owner)
         DS.Replicator.replicate(primary_key, :tombstone, clock)
 
+      {:ok, _owner} when hops_remaining == 0 ->
+        Logger.warning("routing inconsistent for #{inspect(primary_key)}")
+        {:error, :routing_inconsistent}
+
       {:ok, owner} ->
-        forward(owner, :tombstone, [entity, key])
+        forward(owner, :do_tombstone, [entity, key, hops_remaining - 1])
     end
   end
 
