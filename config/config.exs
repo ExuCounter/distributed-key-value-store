@@ -8,7 +8,7 @@ config :ds,
   replication_timeout: 5_000,
   reconcile_interval: :timer.seconds(30),
   rebalance_delay: :timer.seconds(5),
-  resync_interval: :timer.seconds(30),
+  resync_interval: :timer.seconds(2),
   scan_batch: 100
 
 import_config "#{config_env()}.exs"

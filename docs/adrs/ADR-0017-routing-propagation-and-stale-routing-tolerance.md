@@ -89,9 +89,9 @@ Only `forward/3` passes a decremented value.
 ### 2. Tighten the periodic resync interval
 
 The disagreement window's *upper bound* in the current design is the resync
-interval. At 30 seconds, a missed broadcast leaves a follower stale for
-half a minute. Tighten it to **2 seconds** (`DS.Config.resync_interval`
-default change). Same applies to `reconcile_interval`.
+interval — the cadence at which Schema and Index GenServers pull state
+from peers. At 30 seconds, a follower that missed a broadcast remains
+stale for up to half a minute. Tighten `resync_interval` to **2 seconds**.
 
 At 2s:
 - Worst-case window for a missed broadcast = 2s.
@@ -99,6 +99,11 @@ At 2s:
   hop (~1ms LAN). In rare symmetric cases, the hop counter trips and the
   caller retries.
 - After 2s, the stale follower has pulled the fresh table.
+
+`reconcile_interval` is **not** affected by this decision. It controls
+local index reconciliation (a background cleanup task), not cross-node
+propagation, so the disagreement-window argument doesn't apply. It stays
+at 30 seconds.
 
 This is a one-knob change, no new mechanism.
 
