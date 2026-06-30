@@ -5,7 +5,7 @@ defmodule DS.Replicator do
 
     result =
       DS.TaskSupervisor
-      |> Task.Supervisor.async_stream(
+      |> Task.Supervisor.async_stream_nolink(
         nodes,
         fn node ->
           DS.Storage.Primary.remote_write(node, key, record, clock)

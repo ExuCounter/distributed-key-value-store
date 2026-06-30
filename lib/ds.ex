@@ -63,7 +63,7 @@ defmodule DS do
 
     records =
       DS.TaskSupervisor
-      |> Task.Supervisor.async_stream(
+      |> Task.Supervisor.async_stream_nolink(
         nodes,
         fn node -> forward(node, :where_with_records, [entity, field, min, max]) end,
         timeout: DS.Config.replication_timeout(),

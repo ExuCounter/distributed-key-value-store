@@ -34,7 +34,8 @@ defmodule DS.ClusterCase do
       Application.stop(:ds)
     end)
 
-    {:ok, peers: Enum.map(peers, &elem(&1, 1)), nodes: nodes}
+    peer_pids = Map.new(peers, fn {pid, node} -> {node, pid} end)
+    {:ok, peers: Enum.map(peers, &elem(&1, 1)), peer_pids: peer_pids, nodes: nodes}
   end
 
   defp ensure_distribution do
@@ -100,6 +101,27 @@ defmodule DS.ClusterCase do
       :undefined -> :ok
       _ -> :ets.delete(name)
     end
+  end
+
+  def stop_peer(peer_pid, peer_node) do
+    ref = :erlang.monitor(:process, {DS.Rebalancer, peer_node})
+    :net_kernel.monitor_nodes(true)
+
+    try do
+      :peer.stop(peer_pid)
+    catch
+      :exit, _ -> :ok
+    end
+
+    receive do
+      {:nodedown, ^peer_node} -> :ok
+    after
+      2_000 -> :ok
+    end
+
+    :net_kernel.monitor_nodes(false)
+    :erlang.demonitor(ref, [:flush])
+    :ok
   end
 
   def eventually(timeout_ms \\ 1_000, fun) do

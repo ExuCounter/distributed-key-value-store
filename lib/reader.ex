@@ -11,7 +11,7 @@ defmodule DS.Reader do
 
         responses =
           DS.TaskSupervisor
-          |> Task.Supervisor.async_stream(
+          |> Task.Supervisor.async_stream_nolink(
             nodes,
             fn node -> DS.Storage.Primary.remote_read(node, primary_key) end,
             timeout: DS.Config.replication_timeout(),
