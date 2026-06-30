@@ -60,8 +60,9 @@ defmodule DS do
 
   def where(entity, field, min, max) do
     nodes = DS.Router.all_nodes()
+    quorum = max(1, length(nodes) - DS.Config.replication_factor() + 1)
 
-    records =
+    {responded, merged} =
       DS.TaskSupervisor
       |> Task.Supervisor.async_stream_nolink(
         nodes,
@@ -69,14 +70,20 @@ defmodule DS do
         timeout: DS.Config.replication_timeout(),
         on_timeout: :kill_task
       )
-      |> Enum.reduce(%{}, fn
-        {:ok, node_records}, accumulator -> merge_by_key(accumulator, node_records)
-        _, accumulator -> accumulator
-      end)
-      |> Map.values()
-      |> Enum.map(fn {record, _clock} -> record end)
+      |> Enum.reduce({0, %{}}, fn
+        {:ok, node_records}, {count, accumulator} when is_list(node_records) ->
+          {count + 1, merge_by_key(accumulator, node_records)}
 
-    {:ok, records}
+        _, accumulator_tuple ->
+          accumulator_tuple
+      end)
+
+    if responded >= quorum do
+      records = merged |> Map.values() |> Enum.map(fn {record, _clock} -> record end)
+      {:ok, records}
+    else
+      {:error, :unavailable}
+    end
   end
 
   defp merge_by_key(accumulator, node_records) do
