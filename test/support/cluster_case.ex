@@ -11,7 +11,6 @@ defmodule DS.ClusterCase do
   end
 
   setup_all do
-    ensure_distribution()
     Application.stop(:ds)
     {:ok, _} = Application.ensure_all_started(:ds)
 
@@ -23,13 +22,15 @@ defmodule DS.ClusterCase do
     wait_for_routing(nodes)
 
     on_exit(fn ->
-      Enum.each(peers, fn {pid, _node} ->
+      peers
+      |> Task.async_stream(fn {pid, _node} ->
         try do
           :peer.stop(pid)
         catch
           :exit, _ -> :ok
         end
       end)
+      |> Stream.run()
 
       Application.stop(:ds)
     end)
@@ -38,18 +39,48 @@ defmodule DS.ClusterCase do
     {:ok, peers: Enum.map(peers, &elem(&1, 1)), peer_pids: peer_pids, nodes: nodes}
   end
 
-  defp ensure_distribution do
-    unless Node.alive?() do
-      :net_kernel.start(:"controller@127.0.0.1", %{name_domain: :longnames})
-    end
-  end
-
   setup %{nodes: nodes} do
     Enum.each(nodes, &reset_state/1)
     :ok
   end
 
-  def start_peer(short_name) do
+  def stop_peer(peer_pid, peer_node) do
+    :net_kernel.monitor_nodes(true)
+
+    try do
+      :peer.stop(peer_pid)
+    catch
+      :exit, _ -> :ok
+    end
+
+    receive do
+      {:nodedown, ^peer_node} -> :ok
+    after
+      2_000 -> :ok
+    end
+
+    :net_kernel.monitor_nodes(false)
+    :ok
+  end
+
+  def eventually(timeout_ms \\ 1_000, fun) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_eventually(fun, deadline)
+  end
+
+  def do_reset do
+    for {{entity, field}, _} <- :ets.tab2list(:indexes) do
+      drop_table(DS.Storage.Index.forward_index_name(entity, field))
+      drop_table(DS.Storage.Index.reverse_index_name(entity, field))
+    end
+
+    :ets.delete_all_objects(:indexes)
+    :ets.delete_all_objects(:schemas)
+    :ets.delete_all_objects(:primary)
+    :ok
+  end
+
+  defp start_peer(short_name) do
     {:ok, pid, node} =
       :peer.start(%{
         name: short_name,
@@ -76,24 +107,12 @@ defmodule DS.ClusterCase do
     {pid, node}
   end
 
-  def reset_state(node) when node == node() do
+  defp reset_state(node) when node == node() do
     do_reset()
   end
 
-  def reset_state(node) do
+  defp reset_state(node) do
     :erpc.call(node, __MODULE__, :do_reset, [])
-  end
-
-  def do_reset do
-    for {{entity, field}, _} <- :ets.tab2list(:indexes) do
-      drop_table(DS.Storage.Index.forward_index_name(entity, field))
-      drop_table(DS.Storage.Index.reverse_index_name(entity, field))
-    end
-
-    :ets.delete_all_objects(:indexes)
-    :ets.delete_all_objects(:schemas)
-    :ets.delete_all_objects(:primary)
-    :ok
   end
 
   defp drop_table(name) do
@@ -103,30 +122,21 @@ defmodule DS.ClusterCase do
     end
   end
 
-  def stop_peer(peer_pid, peer_node) do
-    ref = :erlang.monitor(:process, {DS.Rebalancer, peer_node})
-    :net_kernel.monitor_nodes(true)
-
-    try do
-      :peer.stop(peer_pid)
-    catch
-      :exit, _ -> :ok
-    end
-
-    receive do
-      {:nodedown, ^peer_node} -> :ok
-    after
-      2_000 -> :ok
-    end
-
-    :net_kernel.monitor_nodes(false)
-    :erlang.demonitor(ref, [:flush])
-    :ok
+  defp wait_for_routing(nodes, timeout_ms \\ 2_000) do
+    eventually(timeout_ms, fn ->
+      Enum.all?(nodes, &routing_populated?/1)
+    end)
   end
 
-  def eventually(timeout_ms \\ 1_000, fun) do
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    do_eventually(fun, deadline)
+  defp routing_populated?(node) when node == node() do
+    :ets.info(:routing, :size) > 0
+  end
+
+  defp routing_populated?(node) do
+    case :erpc.call(node, :ets, :info, [:routing, :size]) do
+      n when is_integer(n) and n > 0 -> true
+      _ -> false
+    end
   end
 
   defp do_eventually(fun, deadline) do
@@ -139,36 +149,6 @@ defmodule DS.ClusterCase do
         Process.sleep(20)
         do_eventually(fun, deadline)
       end
-    end
-  end
-
-  def wait_for_routing(nodes, timeout_ms \\ 2_000) do
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    do_wait_for_routing(nodes, deadline)
-  end
-
-  defp do_wait_for_routing(nodes, deadline) do
-    cond do
-      Enum.all?(nodes, &routing_populated?/1) ->
-        :ok
-
-      System.monotonic_time(:millisecond) > deadline ->
-        {:error, :routing_not_ready}
-
-      true ->
-        Process.sleep(20)
-        do_wait_for_routing(nodes, deadline)
-    end
-  end
-
-  defp routing_populated?(node) when node == node() do
-    :ets.info(:routing, :size) > 0
-  end
-
-  defp routing_populated?(node) do
-    case :erpc.call(node, :ets, :info, [:routing, :size]) do
-      n when is_integer(n) and n > 0 -> true
-      _ -> false
     end
   end
 end
