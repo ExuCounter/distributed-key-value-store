@@ -20,8 +20,8 @@ defmodule DS do
         {:error, :service_unavailable}
 
       {:ok, owner} when owner == node() ->
-        {:ok, clock} = DS.Storage.Primary.put(primary_key, record, owner)
-        DS.Replicator.replicate(primary_key, record, clock)
+        {:ok, fields} = DS.Storage.Primary.put(primary_key, record, owner)
+        DS.Replicator.replicate(primary_key, fields)
 
       {:ok, _owner} when hops_remaining == 0 ->
         Logger.warning("routing inconsistent for #{inspect(primary_key)}")
@@ -42,8 +42,8 @@ defmodule DS do
         {:error, :service_unavailable}
 
       {:ok, owner} when owner == node() ->
-        {:ok, clock} = DS.Storage.Primary.tombstone(primary_key, owner)
-        DS.Replicator.replicate(primary_key, :tombstone, clock)
+        {:ok, tombstone_clock} = DS.Storage.Primary.tombstone(primary_key, owner)
+        DS.Replicator.replicate_tombstone(primary_key, tombstone_clock)
 
       {:ok, _owner} when hops_remaining == 0 ->
         Logger.warning("routing inconsistent for #{inspect(primary_key)}")
@@ -72,27 +72,31 @@ defmodule DS do
       )
       |> Enum.reduce({0, %{}}, fn
         {:ok, node_records}, {count, accumulator} when is_list(node_records) ->
-          {count + 1, merge_by_key(accumulator, node_records)}
+          {count + 1, merge_by_key(accumulator, node_records, entity)}
 
         _, accumulator_tuple ->
           accumulator_tuple
       end)
 
     if responded >= quorum do
-      records = merged |> Map.values() |> Enum.map(fn {record, _clock} -> record end)
+      records = merged |> Map.values() |> Enum.map(&fields_to_record/1)
       {:ok, records}
     else
       {:error, :unavailable}
     end
   end
 
-  defp merge_by_key(accumulator, node_records) do
-    Enum.reduce(node_records, accumulator, fn {key, record, clock}, map ->
+  defp merge_by_key(accumulator, node_records, entity) do
+    Enum.reduce(node_records, accumulator, fn {key, fields, _clock}, map ->
       case Map.get(map, key) do
-        nil -> Map.put(map, key, {record, clock})
-        existing -> Map.put(map, key, DS.Reader.pick_newer(existing, {record, clock}))
+        nil -> Map.put(map, key, fields)
+        existing -> Map.put(map, key, DS.CRDT.merge_fields(existing, fields, entity))
       end
     end)
+  end
+
+  defp fields_to_record(fields) do
+    Map.new(fields, fn {field, {value, _clock}} -> {field, value} end)
   end
 
   defp forward(node, fun, args) do

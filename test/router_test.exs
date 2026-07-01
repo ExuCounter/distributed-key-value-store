@@ -5,11 +5,7 @@ defmodule DS.RouterTest do
   alias DS.Routing
 
   setup_all do
-    case Routing.start_link([]) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-    end
-
+    start_supervised!(Routing)
     :ok
   end
 

@@ -8,8 +8,8 @@ defmodule DS.Storage.IndexTest do
   @field :age
 
   setup_all do
-    start_if_needed(Schema)
-    start_if_needed(Index)
+    start_supervised!(Schema)
+    start_supervised!(Index)
     :ok
   end
 
@@ -24,13 +24,6 @@ defmodule DS.Storage.IndexTest do
 
     :ok = Schema.register(@entity, %{@field => :lww, :name => :lww})
     :ok
-  end
-
-  defp start_if_needed(module) do
-    case module.start_link([]) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-    end
   end
 
   defp drop_table(name) do

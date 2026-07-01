@@ -6,22 +6,20 @@ defmodule DS.Cluster.ConflictResolutionTest do
     :ok
   end
 
-  test "reads converge to the deterministic winner when replicas diverge",
+  test "reads converge to the deterministic merge when replicas diverge",
        %{peers: [peer1, _peer2], nodes: nodes} do
     primary_key = {:user, "split"}
-    record_left = %{name: "left"}
-    record_right = %{name: "right"}
 
-    {:ok, clock_left} = DS.Storage.Primary.put(primary_key, record_left, node())
+    {:ok, fields_left} = DS.Storage.Primary.put(primary_key, %{name: "left"}, node())
 
-    {:ok, clock_right} =
-      :erpc.call(peer1, DS.Storage.Primary, :put, [primary_key, record_right, peer1])
+    {:ok, fields_right} =
+      :erpc.call(peer1, DS.Storage.Primary, :put, [primary_key, %{name: "right"}, peer1])
 
-    {winner, _clock} =
-      DS.Reader.pick_newer({record_left, clock_left}, {record_right, clock_right})
+    merged = DS.CRDT.merge_fields(fields_left, fields_right, :user)
+    expected = Map.new(merged, fn {field, {value, _clock}} -> {field, value} end)
 
     for node <- nodes do
-      assert {:ok, ^winner} = :erpc.call(node, DS, :get, [:user, "split"])
+      assert {:ok, ^expected} = :erpc.call(node, DS, :get, [:user, "split"])
     end
   end
 end

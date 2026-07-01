@@ -50,4 +50,22 @@ defmodule DS.CRDT do
   def counter_value(counter) do
     Enum.sum(Map.values(counter))
   end
+
+  def merge_fields(local_fields, incoming_fields, entity) do
+    field_names = Enum.uniq(Map.keys(local_fields) ++ Map.keys(incoming_fields))
+
+    Map.new(field_names, fn field ->
+      local = Map.get(local_fields, field)
+      incoming = Map.get(incoming_fields, field)
+      {field, merge_field(local, incoming, entity, field)}
+    end)
+  end
+
+  defp merge_field(nil, incoming, _entity, _field), do: incoming
+  defp merge_field(local, nil, _entity, _field), do: local
+
+  defp merge_field(local, incoming, entity, field) do
+    {:ok, type} = DS.Storage.Schema.get_field(entity, field)
+    resolve_conflict(type, local, incoming)
+  end
 end

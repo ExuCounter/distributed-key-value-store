@@ -1,35 +1,15 @@
 defmodule DS.Reader do
-  # TODO: remote_write to stale replicas, with clock smaller
-
   def read(primary_key) do
     case DS.Router.all_nodes_for(primary_key) do
-      {:error, _} = err ->
-        err
+      {:error, _} = error ->
+        error
 
       {:ok, nodes} ->
         quorum = DS.Config.read_quorum()
+        {entity, _key} = primary_key
 
-        responses =
-          DS.TaskSupervisor
-          |> Task.Supervisor.async_stream_nolink(
-            nodes,
-            fn node -> DS.Storage.Primary.remote_read(node, primary_key) end,
-            timeout: DS.Config.replication_timeout(),
-            on_timeout: :kill_task
-          )
-          |> Enum.reduce_while([], fn
-            {:ok, {:ok, {record, clock}}}, accumulator
-            when length(accumulator) + 1 >= quorum ->
-              {:halt, [{record, clock} | accumulator]}
-
-            {:ok, {:ok, {record, clock}}}, accumulator ->
-              {:cont, [{record, clock} | accumulator]}
-
-            _, accumulator ->
-              {:cont, accumulator}
-          end)
-
-        resolve_read(responses)
+        responses = collect_responses(nodes, primary_key, quorum)
+        resolve_read(responses, entity)
     end
   end
 
@@ -58,14 +38,65 @@ defmodule DS.Reader do
     end
   end
 
-  defp resolve_read([]), do: {:error, :not_found}
+  defp collect_responses(nodes, primary_key, quorum) do
+    DS.TaskSupervisor
+    |> Task.Supervisor.async_stream_nolink(
+      nodes,
+      fn node -> DS.Storage.Primary.remote_read_raw(node, primary_key) end,
+      timeout: DS.Config.replication_timeout(),
+      on_timeout: :kill_task
+    )
+    |> Enum.reduce_while([], fn
+      {:ok, {:ok, payload}}, accumulator when length(accumulator) + 1 >= quorum ->
+        {:halt, [payload | accumulator]}
 
-  defp resolve_read(responses) do
+      {:ok, {:ok, payload}}, accumulator ->
+        {:cont, [payload | accumulator]}
+
+      _, accumulator ->
+        {:cont, accumulator}
+    end)
+  end
+
+  defp resolve_read([], _entity), do: {:error, :not_found}
+
+  defp resolve_read(responses, entity) do
     if length(responses) >= DS.Config.read_quorum() do
-      {record, _clock} = Enum.reduce(responses, &pick_newer/2)
-      {:ok, record}
+      merged = Enum.reduce(responses, &merge_responses(&1, &2, entity))
+      project(merged)
     else
       {:error, :unavailable}
     end
+  end
+
+  defp merge_responses({:tombstone, clock_a}, {:tombstone, clock_b}, _entity) do
+    {:tombstone, DS.VectorClock.merge(clock_a, clock_b)}
+  end
+
+  defp merge_responses({:tombstone, tombstone_clock}, {fields, record_clock}, _entity) do
+    resolve_tombstone_vs_live(fields, tombstone_clock, record_clock)
+  end
+
+  defp merge_responses({fields, record_clock}, {:tombstone, tombstone_clock}, _entity) do
+    resolve_tombstone_vs_live(fields, tombstone_clock, record_clock)
+  end
+
+  defp merge_responses({fields_a, clock_a}, {fields_b, clock_b}, entity) do
+    merged = DS.CRDT.merge_fields(fields_a, fields_b, entity)
+    {merged, DS.VectorClock.merge(clock_a, clock_b)}
+  end
+
+  defp resolve_tombstone_vs_live(fields, tombstone_clock, record_clock) do
+    case DS.VectorClock.compare(tombstone_clock, record_clock) do
+      compare when compare in [:after, :equal] -> {:tombstone, tombstone_clock}
+      _ -> {fields, record_clock}
+    end
+  end
+
+  defp project({:tombstone, _clock}), do: {:error, :not_found}
+
+  defp project({fields, _clock}) do
+    record = Map.new(fields, fn {field, {value, _clock}} -> {field, value} end)
+    {:ok, record}
   end
 end

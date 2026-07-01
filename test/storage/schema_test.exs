@@ -7,11 +7,7 @@ defmodule DS.Storage.SchemaTest do
   @schema %{name: :lww, age: :lww}
 
   setup_all do
-    case Schema.start_link([]) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-    end
-
+    start_supervised!(Schema)
     :ok
   end
 

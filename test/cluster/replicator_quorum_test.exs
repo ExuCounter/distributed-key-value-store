@@ -11,17 +11,17 @@ defmodule DS.Cluster.ReplicatorQuorumTest do
     primary_key = {:user, "qkey"}
     :ets.insert(:routing, {:erlang.phash2(primary_key, DS.Config.slots()), node()})
 
-    {:ok, clock} = DS.Storage.Primary.put(primary_key, %{name: "a"}, node())
-    assert :ok = DS.Replicator.replicate(primary_key, %{name: "a"}, clock)
+    {:ok, fields} = DS.Storage.Primary.put(primary_key, %{name: "a"}, node())
+    assert :ok = DS.Replicator.replicate(primary_key, fields)
 
     stop_peer(peer_pids[peer1], peer1)
 
-    {:ok, clock} = DS.Storage.Primary.put(primary_key, %{name: "b"}, node())
-    assert :ok = DS.Replicator.replicate(primary_key, %{name: "b"}, clock)
+    {:ok, fields} = DS.Storage.Primary.put(primary_key, %{name: "b"}, node())
+    assert :ok = DS.Replicator.replicate(primary_key, fields)
 
     stop_peer(peer_pids[peer2], peer2)
 
-    {:ok, clock} = DS.Storage.Primary.put(primary_key, %{name: "c"}, node())
-    assert {:error, :unavailable} = DS.Replicator.replicate(primary_key, %{name: "c"}, clock)
+    {:ok, fields} = DS.Storage.Primary.put(primary_key, %{name: "c"}, node())
+    assert {:error, :unavailable} = DS.Replicator.replicate(primary_key, fields)
   end
 end
